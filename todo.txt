@@ -1,0 +1,4 @@
+- DOS protection
+- Save visitors.csv
+- Implement PUT
+- Entire client code
