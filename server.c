@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "visitors.h"
 
@@ -121,16 +122,18 @@ void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct
   char path[256];
   sprintf(path, "Upload%s", targetFile);
 
-  // Only if file doesn't already exist
   if (access(path, F_OK) != -1)
   {
-    // Already exists!!!!
+    // File already exists! Discard request
     response->status = STATUS_FORBIDDEN;
+    writeContent(-1, response);
     return;
   }
 
-  // Create file
+  // Create file (we identify user-made files by their permissions)
+  int oldmask = umask(0000);
   int fd = open(path, O_WRONLY | O_CREAT, 0666);
+  umask(oldmask);
   if (fd == -1)
   {
     perror("Could not create file");
@@ -139,6 +142,7 @@ void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct
 
   // Write the data
   write(fd, inputData, dataLength);
+  close(fd);
 
   // Update response
   response->status = STATUS_CREATED;
@@ -215,7 +219,7 @@ void determineContentType(char *targetFile, struct HttpResponse *response)
   strcpy(tCopy, targetFile);
   char *ext = strtok(tCopy, ".");
   ext = strtok(NULL, ".");
-  if (!strcmp(ext, "ico"))
+  if (ext && !strcmp(ext, "ico"))
     strcpy(response->contentType, "image/png\nCache-Control: max-age=172800"); // (Because browsers query favico immediately after getting the main page, don't trigger the DoS sensors)
   else // Assume it's html by default
     strcpy(response->contentType, "text/html");
