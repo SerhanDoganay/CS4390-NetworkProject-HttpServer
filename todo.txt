@@ -1,4 +1,4 @@
-- DOS protection
-- Save visitors.csv
 - Implement PUT
 - Entire client code
+
+Note: If you're testing the server using a browser, make sure caching is enabled, otherwise it will activate the DoS protection algorithm when fetching favicon.ico

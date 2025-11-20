@@ -18,7 +18,6 @@ void *httpserver(void *threadArg)
   struct HttpResponse response;
   while (read(clientfd, request, 10000) > 0)
   {
-    puts(request);
     memset(&response, 0, sizeof(response));
     handleHttpRequest(request, &response);
     sendHttpResponse(clientfd, &response);
@@ -34,6 +33,7 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   if (!uaField)
   {
     response->status = STATUS_FORBIDDEN; // Don't handle requests without user agents
+    writeContent(-1, response);
     return;
   }
   char uaStr[10000];
@@ -42,7 +42,12 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   char *userAgent = strtok(NULL, "\r\n");
 
   // Generate cookie
-  GetCookie(userAgent, response);
+  if (!GetCookie(userAgent, response))
+  {
+    response->status = STATUS_FORBIDDEN; // Don't handle requests from users that are trying to DoS us
+    writeContent(-1, response);
+    return;
+  }
 
   // If request contains post/put data, check content length
   char *lengthField = strstr(request, "Content-Length: ");
@@ -81,19 +86,8 @@ void handleGetRequest(char *targetFile, struct HttpResponse *response)
 {
   int fd = handleHeadRequest(targetFile, response);
   response->method = HTTP_GET;
-  response->hasContent = 1; // Even if we don't get 200 OK, output SOME response
 
-  if (fd == -1 && (response->status == STATUS_NOT_FOUND || response->status == STATUS_FORBIDDEN))
-  {
-    char errorhtml[30];
-    sprintf(errorhtml, "Upload/%i.html", response->status);
-    fd = open(errorhtml, O_RDONLY);
-
-    if (fd == -1)
-      perror("Failed to open error html");
-  }
-
-  response->contentLength = read(fd, response->content, 10000);
+  writeContent(fd, response);
 }
 
 int handleHeadRequest(char *targetFile, struct HttpResponse *response)
@@ -136,7 +130,7 @@ void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct
   }
 
   // Create file
-  int fd = open(path, O_WRONLY | O_CREAT);
+  int fd = open(path, O_WRONLY | O_CREAT, 0666);
   if (fd == -1)
   {
     perror("Could not create file");
@@ -222,7 +216,26 @@ void determineContentType(char *targetFile, struct HttpResponse *response)
   char *ext = strtok(tCopy, ".");
   ext = strtok(NULL, ".");
   if (!strcmp(ext, "ico"))
-    strcpy(response->contentType, "image/png");
+    strcpy(response->contentType, "image/png\nCache-Control: max-age=172800"); // (Because browsers query favico immediately after getting the main page, don't trigger the DoS sensors)
   else // Assume it's html by default
     strcpy(response->contentType, "text/html");
+}
+
+void writeContent(int fd, struct HttpResponse *response)
+{
+  response->hasContent = 1;
+
+  if (fd == -1 && (response->status == STATUS_NOT_FOUND || response->status == STATUS_FORBIDDEN))
+  {
+    char errorhtml[30];
+    sprintf(errorhtml, "Upload/%i.html", response->status);
+    fd = open(errorhtml, O_RDONLY);
+
+    determineContentType(errorhtml, response);
+
+    if (fd == -1)
+      perror("Failed to open error html");
+  }
+
+  response->contentLength = read(fd, response->content, 10000);
 }

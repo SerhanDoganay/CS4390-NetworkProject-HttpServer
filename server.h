@@ -32,5 +32,6 @@ void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct
 void handlePutRequest(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response);
 void sendHttpResponse(int clientfd, struct HttpResponse *response);
 void determineContentType(char *targetFile, struct HttpResponse *response);
+void writeContent(int fd, struct HttpResponse *request);
 
 #endif

@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,14 +8,14 @@
 #include <unistd.h>
 #include "visitors.h"
 
-struct Visitors *visitorList = NULL;
+struct VisitorNode *head = NULL;
 pthread_mutex_t visitorLock; 
 
 struct VisitorEntry *GetVisitor(char *userAgent)
 {
   pthread_mutex_lock(&visitorLock);
 
-  struct VisitorNode *i = visitorList->head;
+  struct VisitorNode *i = head;
   while (i)
   {
     if (!strcmp(i->data->userAgent, userAgent))
@@ -56,6 +57,9 @@ void PutVisitor(char *userAgent, int numVisits, int lastVisitTime)
   strcpy(newEntry->userAgent, userAgent);
   newEntry->numVisits = numVisits;
   newEntry->lastVisitTime = lastVisitTime;
+  newEntry->requestsPerSec = 0;
+  newEntry->numVisitsThisSession = 0;
+  newEntry->isBlocked = 0;
 
   // Create node
   struct VisitorNode *newNode = malloc(sizeof(struct VisitorNode));
@@ -66,30 +70,21 @@ void PutVisitor(char *userAgent, int numVisits, int lastVisitTime)
   }
 
   newNode->data = newEntry;
-  newNode->next = visitorList->head;
-  visitorList->head = newNode;
-  visitorList->numEntries++;
+  newNode->next = head;
+  head = newNode;
 
   pthread_mutex_unlock(&visitorLock);
 }
 
 void LoadVisitors()
 {
-  if (visitorList)
+  if (head)
     return; // Already loaded
 
   pthread_mutex_init(&visitorLock, NULL);
   
   // Initialize empty visitor list
-  visitorList = malloc(sizeof(struct Visitors));
-  if (!visitorList)
-  {
-    puts("Failed to create initial visitor list");
-    return;
-  }
-
-  visitorList->numEntries = 0;
-  visitorList->head = NULL;
+  head = NULL;
 
   // Open the visitors database
   int fd = open("visitors.csv", O_RDONLY);
@@ -127,7 +122,8 @@ void LoadVisitors()
     perror("Couldn't close visitors.csv");
 }
 
-void GetCookie(char *userAgent, struct HttpResponse *response)
+// Return 0 if this user is malicious (too many requests in a time interval); return 1 if safe
+int GetCookie(char *userAgent, struct HttpResponse *response)
 {
   struct VisitorEntry *visitor = GetVisitor(userAgent);
   int numVisits = 1;
@@ -137,14 +133,33 @@ void GetCookie(char *userAgent, struct HttpResponse *response)
     // New visitor!
     PutVisitor(userAgent, numVisits, lastVisitTime);
   }
+  else if (visitor->isBlocked)
+    return 0; // Don't process request from this user
   else
   {
     // Update existing entry
+
+    if (visitor->numVisitsThisSession++ > 5) // Grant some leniency; don't track request frequency until some number of visits
+    {
+      // Calculate average visits per second
+      float currAvg = visitor->requestsPerSec;
+      float newAvg = 1 / (float)(lastVisitTime - visitor->lastVisitTime);
+      visitor->requestsPerSec = (currAvg + newAvg) / 2;
+
+      if (visitor->requestsPerSec > (float)100/60)
+      {
+        // User is making (on average) more than 100 requests per min (60 seconds). Block them.
+        visitor->isBlocked = 1;
+        return 0;
+      }
+    }
+
     numVisits = ++visitor->numVisits;
     visitor->lastVisitTime = lastVisitTime;
   }
 
   sprintf(response->cookie, "\nSet-Cookie: num_visits=%i\nSet-Cookie: last_visit_time=%i", numVisits, lastVisitTime);
+  return 1;
 }
 
 void SaveVisitors(int signal)
@@ -156,7 +171,7 @@ void SaveVisitors(int signal)
     exit(signal);
   }
 
-  struct VisitorNode *i = visitorList->head;
+  struct VisitorNode *i = head;
   while (i)
   {
     char line[1500];
@@ -170,7 +185,6 @@ void SaveVisitors(int signal)
     i = n->next;
     free(n);
   }
-  free(visitorList);
 
   if (close(fd))
     perror("Could not close visitors.csv");
