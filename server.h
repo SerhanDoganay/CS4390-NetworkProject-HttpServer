@@ -1,11 +1,6 @@
 #ifndef __SERVER_H
 #define __SERVER_H
 
-#define HTTP_GET 0
-#define HTTP_HEAD 1
-#define HTTP_POST 2
-#define HTTP_PUT 3
-
 #define STATUS_OK 200
 #define STATUS_CREATED 201
 #define STATUS_FORBIDDEN 403
@@ -13,7 +8,6 @@
 
 struct HttpResponse
 {
-  int method;
   int status;
   char hasLocation;
   char hasContent;
@@ -28,10 +22,9 @@ void *httpserver(void *);
 void handleHttpRequest(char *request, struct HttpResponse *response);
 void handleGetRequest(char *targetFile, struct HttpResponse *response);
 int handleHeadRequest(char *targetFile, struct HttpResponse *response);
-void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response);
-void handlePutRequest(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response);
 void sendHttpResponse(int clientfd, struct HttpResponse *response);
 void determineContentType(char *targetFile, struct HttpResponse *response);
 void writeContent(int fd, struct HttpResponse *request);
+void uploadContent(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response, char create);
 
 #endif

@@ -76,9 +76,9 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   else if (!strcmp(method, "HEAD"))
     handleHeadRequest(targetFile, response);
   else if (!strcmp(method, "POST"))
-    handlePostRequest(targetFile, inputFile, dataLength, response);
+    uploadContent(targetFile, inputFile, dataLength, response, 1);
   else if (!strcmp(method, "PUT"))
-    handlePutRequest(targetFile, inputFile, dataLength, response);
+    uploadContent(targetFile, inputFile, dataLength, response, 0);
   else  
     printf("Skipping unknown HTTP method: %s\n", method);
 }
@@ -86,15 +86,11 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
 void handleGetRequest(char *targetFile, struct HttpResponse *response)
 {
   int fd = handleHeadRequest(targetFile, response);
-  response->method = HTTP_GET;
-
   writeContent(fd, response);
 }
 
 int handleHeadRequest(char *targetFile, struct HttpResponse *response)
 {
-  response->method = HTTP_HEAD;
-
   if (!strcmp(targetFile, "/"))
     targetFile = "/index.html"; // If no file explicity requested, return index.html
 
@@ -115,48 +111,6 @@ int handleHeadRequest(char *targetFile, struct HttpResponse *response)
   }
   
   return fd;
-}
-
-void handlePostRequest(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response)
-{
-  char path[256];
-  sprintf(path, "Upload%s", targetFile);
-
-  if (access(path, F_OK) != -1)
-  {
-    // File already exists! Discard request
-    response->status = STATUS_FORBIDDEN;
-    writeContent(-1, response);
-    return;
-  }
-
-  // Create file (we identify user-made files by their permissions)
-  int oldmask = umask(0000);
-  int fd = open(path, O_WRONLY | O_CREAT, 0666);
-  umask(oldmask);
-  if (fd == -1)
-  {
-    perror("Could not create file");
-    return;
-  }
-
-  // Write the data
-  write(fd, inputData, dataLength);
-  close(fd);
-
-  // Update response
-  response->status = STATUS_CREATED;
-  response->hasLocation = 1;
-  sprintf(response->location, "%s%s", baseURI, targetFile);
-  response->hasContent = 1;
-  memcpy(response->content, inputData, dataLength);
-  response->contentLength = dataLength;
-  determineContentType(targetFile, response);
-}
-
-void handlePutRequest(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response)
-{
-  // Only if file already exists
 }
 
 void sendHttpResponse(int clientfd, struct HttpResponse *response)
@@ -242,4 +196,67 @@ void writeContent(int fd, struct HttpResponse *response)
   }
 
   response->contentLength = read(fd, response->content, 10000);
+}
+
+void uploadContent(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response, char create)
+{
+  char path[256];
+  sprintf(path, "Upload%s", targetFile);
+
+  if (create && !access(path, F_OK))
+  {
+    // [POST] File already exists! Discard request
+    response->status = STATUS_FORBIDDEN;
+    writeContent(-1, response);
+    return;
+  }
+  else if (!create && access(path, F_OK))
+  {
+    // [PUT] No such file exists! Discard request
+    response->status = STATUS_NOT_FOUND;
+    writeContent(-1, response);
+    return;
+  }
+
+  // If we're modifying a file, make sure it's a user-made file
+  if (!create)
+  {
+    struct stat fs;
+    if (stat(path, &fs))
+    {
+      perror("Could not stat file");
+      return;
+    }
+
+    if ((fs.st_mode & 0777) != 0666)
+    {
+      // [PUT] Please don't modify this file! Discard request
+      response->status = STATUS_FORBIDDEN;
+      writeContent(-1, response);
+      return;
+    }
+  }
+
+  // Create file (we identify user-made files by their permissions)
+  int oldmask = umask(0000);
+  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+  umask(oldmask);
+  if (fd == -1)
+  {
+    perror("Could not create file");
+    return;
+  }
+
+  // Write the data
+  write(fd, inputData, dataLength);
+  close(fd);
+
+  // Update response
+  response->status = create ? STATUS_CREATED : STATUS_OK;
+  response->hasLocation = 1;
+  sprintf(response->location, "%s%s", baseURI, targetFile);
+  response->hasContent = 1;
+  memcpy(response->content, inputData, dataLength);
+  response->contentLength = dataLength;
+  determineContentType(targetFile, response);
 }
