@@ -1,7 +1,15 @@
-all: main
+CFLAGS = -Wall -Wextra -O2 -Iinclude
 
-main: main.c server.c visitors.c
-	gcc *.c -o main
+all: client server
+
+client: build
+	gcc $(CFLAGS) src/client/*.c -o build/client
+
+server: build
+	gcc $(CFLAGS) src/server/*.c -o build/server
+
+build:
+	mkdir -p build
 
 clean:
-	rm main
+	rm -rf build

@@ -1,17 +1,21 @@
-#include "common.h"
+#include <libgen.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include "server.h"
+#include "server/common.h"
+#include "server/server.h"
+#include "server/visitors.h"
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "visitors.h"
 
 char *uriPrefix = "http://localhost";
 char baseURI[100] = {0};
+char uploadDir[256] = {0};
+char buildDir[200] = {0};
 
 int main(int argc, char **argv)
 {
@@ -25,6 +29,17 @@ int main(int argc, char **argv)
   // Setup URI info with port
   int port = atoi(argv[1]);
   sprintf(baseURI, "%s:%i", uriPrefix, port);
+
+  // Determine the Upload directory
+  char p[200];
+  int len = readlink("/proc/self/exe", p, 199);
+  if (len)
+  {
+    strcpy(buildDir, dirname(p));
+    sprintf(uploadDir, "%s/../Upload", buildDir);
+  }
+  else
+    exit(EXIT_FAILURE);
 
   // Load visitors database
   LoadVisitors();
@@ -65,7 +80,7 @@ int main(int argc, char **argv)
 
     // Obtain client info
     struct sockaddr_in client_addr;
-    int client_len = sizeof(client_addr);
+    socklen_t client_len = sizeof(client_addr);
 
     int *clientfd = malloc(sizeof(int)); // We don't want to lose the fd
     if (!clientfd)

@@ -1,14 +1,14 @@
-#include "common.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include "server.h"
+#include "server/common.h"
+#include "server/server.h"
+#include "server/visitors.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "visitors.h"
 
 void *httpserver(void *threadArg)
 {
@@ -53,7 +53,7 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   // If request contains post/put data, check content length
   char *lengthField = strstr(request, "Content-Length: ");
   int dataLength = 0;
-  char *inputFile;
+  char *inputFile = NULL;
   if (lengthField)
   {
     // Copy string because strtok actually modifies the input string
@@ -75,9 +75,9 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
     handleGetRequest(targetFile, response);
   else if (!strcmp(method, "HEAD"))
     handleHeadRequest(targetFile, response);
-  else if (!strcmp(method, "POST"))
+  else if (inputFile && !strcmp(method, "POST"))
     uploadContent(targetFile, inputFile, dataLength, response, 1);
-  else if (!strcmp(method, "PUT"))
+  else if (inputFile && !strcmp(method, "PUT"))
     uploadContent(targetFile, inputFile, dataLength, response, 0);
   else  
     printf("Skipping unknown HTTP method: %s\n", method);
@@ -96,8 +96,8 @@ int handleHeadRequest(char *targetFile, struct HttpResponse *response)
 
   determineContentType(targetFile, response);
 
-  char path[256];
-  sprintf(path, "Upload%s", targetFile);
+  char path[300];
+  sprintf(path, "%s%s", uploadDir, targetFile);
   int fd = open(path, O_RDONLY);
   
   response->status = STATUS_OK; // Assume everything's OK
@@ -139,11 +139,9 @@ void sendHttpResponse(int clientfd, struct HttpResponse *response)
   if (write(clientfd, msg, strlen(msg)) == -1)
     perror("Failed to send HTTP response");
   
-  if (response->cookie)
-  {
-    if (write(clientfd, response->cookie, strlen(response->cookie)) == -1)
-      perror("Failed to send HTTP response");
-  }
+  // Send cookie
+  if (write(clientfd, response->cookie, strlen(response->cookie)) == -1)
+    perror("Failed to send HTTP response");
 
   if (response->hasLocation)
   {
@@ -185,8 +183,8 @@ void writeContent(int fd, struct HttpResponse *response)
 
   if (fd == -1 && (response->status == STATUS_NOT_FOUND || response->status == STATUS_FORBIDDEN))
   {
-    char errorhtml[30];
-    sprintf(errorhtml, "Upload/%i.html", response->status);
+    char errorhtml[300];
+    sprintf(errorhtml, "%s/%i.html", uploadDir, response->status);
     fd = open(errorhtml, O_RDONLY);
 
     determineContentType(errorhtml, response);
@@ -200,8 +198,8 @@ void writeContent(int fd, struct HttpResponse *response)
 
 void uploadContent(char *targetFile, char *inputData, int dataLength, struct HttpResponse *response, char create)
 {
-  char path[256];
-  sprintf(path, "Upload%s", targetFile);
+  char path[300];
+  sprintf(path, "%s%s", uploadDir, targetFile);
 
   if (create && !access(path, F_OK))
   {
@@ -248,7 +246,8 @@ void uploadContent(char *targetFile, char *inputData, int dataLength, struct Htt
   }
 
   // Write the data
-  write(fd, inputData, dataLength);
+  if (write(fd, inputData, dataLength) == -1)
+    perror("Could not write file contents");
   close(fd);
 
   // Update response

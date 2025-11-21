@@ -1,15 +1,17 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include "server/common.h"
+#include "server/visitors.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include "visitors.h"
 
 struct VisitorNode *head = NULL;
-pthread_mutex_t visitorLock; 
+pthread_mutex_t visitorLock;
+char csvPath[256] = {0}; 
 
 struct VisitorEntry *GetVisitor(char *userAgent)
 {
@@ -87,7 +89,8 @@ void LoadVisitors()
   head = NULL;
 
   // Open the visitors database
-  int fd = open("visitors.csv", O_RDONLY);
+  sprintf(csvPath, "%s/visitors.csv", buildDir);
+  int fd = open(csvPath, O_RDONLY);
   if (fd == -1)
   {
     // Was it because the file didn't exist?
@@ -164,7 +167,7 @@ int GetCookie(char *userAgent, struct HttpResponse *response)
 
 void SaveVisitors(int signal)
 {
-  int fd = open("visitors.csv", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int fd = open(csvPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd == -1)
   {
     perror("Could not open visitors.csv");
