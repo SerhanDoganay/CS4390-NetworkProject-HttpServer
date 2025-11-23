@@ -161,7 +161,7 @@ int GetCookie(char *userAgent, struct HttpResponse *response)
     visitor->lastVisitTime = lastVisitTime;
   }
 
-  sprintf(response->cookie, "\nSet-Cookie: num_visits=%i\nSet-Cookie: last_visit_time=%i", numVisits, lastVisitTime);
+  sprintf(response->cookie, "\r\nSet-Cookie: num_visits=%i\r\nSet-Cookie: last_visit_time=%i", numVisits, lastVisitTime);
   return 1;
 }
 

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -14,16 +15,17 @@ void *httpserver(void *threadArg)
 {
   int clientfd = *(int *)threadArg;
 
-  // Listen for HTTP requests
-  char request[10000];
-  struct HttpResponse response;
-  while (read(clientfd, request, 10000) > 0)
+  // Listen for an HTTP request
+  char request[10000] = {0};
+  struct HttpResponse response = {0};
+  if (recv(clientfd, request, 10000, 0) > 0)
   {
-    memset(&response, 0, sizeof(response));
     handleHttpRequest(request, &response);
-    sendHttpResponse(clientfd, &response);
+    if (!response.isBanned)
+      sendHttpResponse(clientfd, &response);
   }
 
+  close(clientfd);
   pthread_exit(NULL);
 }
 
@@ -45,8 +47,7 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   // Generate cookie
   if (!GetCookie(userAgent, response))
   {
-    response->status = STATUS_FORBIDDEN; // Don't handle requests from users that are trying to DoS us
-    writeContent(-1, response);
+    response->isBanned = 1; // Don't handle requests from users that are trying to DoS us
     return;
   }
 
@@ -72,9 +73,9 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
 
   // What's the request?
   if (!strcmp(method, "GET"))
-    handleGetRequest(targetFile, response);
+    retrieveContent(targetFile, response, 0);
   else if (!strcmp(method, "HEAD"))
-    handleHeadRequest(targetFile, response);
+    retrieveContent(targetFile, response, 1);
   else if (inputFile && !strcmp(method, "POST"))
     uploadContent(targetFile, inputFile, dataLength, response, 1);
   else if (inputFile && !strcmp(method, "PUT"))
@@ -83,14 +84,10 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
     printf("Skipping unknown HTTP method: %s\n", method);
 }
 
-void handleGetRequest(char *targetFile, struct HttpResponse *response)
+void retrieveContent(char *targetFile, struct HttpResponse *response, char isHead)
 {
-  int fd = handleHeadRequest(targetFile, response);
-  writeContent(fd, response);
-}
+  response->isHead = isHead;
 
-int handleHeadRequest(char *targetFile, struct HttpResponse *response)
-{
   if (!strcmp(targetFile, "/"))
     targetFile = "/index.html"; // If no file explicity requested, return index.html
 
@@ -105,12 +102,11 @@ int handleHeadRequest(char *targetFile, struct HttpResponse *response)
   // Can we open the file?
   if (fd == -1)
   {
-    // Why not? (TEST)
     response->status = STATUS_NOT_FOUND;
     perror("Failed to open file");
   }
   
-  return fd;
+  writeContent(fd, response);
 }
 
 void sendHttpResponse(int clientfd, struct HttpResponse *response)
@@ -136,30 +132,32 @@ void sendHttpResponse(int clientfd, struct HttpResponse *response)
   sprintf(msg, "HTTP/1.0 %i %s", response->status, statusStr);
   
   // Send first part of response
-  if (write(clientfd, msg, strlen(msg)) == -1)
+  if (send(clientfd, msg, strlen(msg), 0) == -1)
     perror("Failed to send HTTP response");
   
   // Send cookie
-  if (write(clientfd, response->cookie, strlen(response->cookie)) == -1)
+  if (send(clientfd, response->cookie, strlen(response->cookie), 0) == -1)
     perror("Failed to send HTTP response");
 
   if (response->hasLocation)
   {
-    sprintf(msg, "\nLocation: %s", response->location);
+    sprintf(msg, "\r\nLocation: %s", response->location);
     // Send response fragment
-    if (write(clientfd, msg, strlen(msg)) == -1)
+    if (send(clientfd, msg, strlen(msg), 0) == -1)
       perror("Failed to send HTTP response");
   }
 
   if (response->hasContent)
   {
-    sprintf(msg, "\nContent-Type: %s\nContent-Length: %i\n\n", response->contentType, response->contentLength);
+    sprintf(msg, "\r\nContent-Type: %s\r\nContent-Length: %i\r\n\r\n", response->contentType, response->contentLength);
     // Send response fragment
-    if (write(clientfd, msg, strlen(msg)) == -1)
+    if (send(clientfd, msg, strlen(msg), 0) == -1)
       perror("Failed to send HTTP response");
 
     // Send file contents
-    if (write(clientfd, response->content, response->contentLength) == -1)
+    if (response->isHead)
+      return; // ...Except if this is a HEAD request
+    if (send(clientfd, response->content, response->contentLength, 0) == -1)
       perror("Failed to send HTTP response");
   }
 }

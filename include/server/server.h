@@ -11,6 +11,8 @@ struct HttpResponse
   int status;
   char hasLocation;
   char hasContent;
+  char isBanned;
+  char isHead;
   int contentLength;
   char location[100];
   char cookie[200];
@@ -20,8 +22,7 @@ struct HttpResponse
 
 void *httpserver(void *);
 void handleHttpRequest(char *request, struct HttpResponse *response);
-void handleGetRequest(char *targetFile, struct HttpResponse *response);
-int handleHeadRequest(char *targetFile, struct HttpResponse *response);
+void retrieveContent(char *targetFile, struct HttpResponse *response, char isHead);
 void sendHttpResponse(int clientfd, struct HttpResponse *response);
 void determineContentType(char *targetFile, struct HttpResponse *response);
 void writeContent(int fd, struct HttpResponse *request);
