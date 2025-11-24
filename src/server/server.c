@@ -13,14 +13,15 @@
 
 void *httpserver(void *threadArg)
 {
-  int clientfd = *(int *)threadArg;
+  struct ServerArg *clientInfo = (struct ServerArg *)threadArg;
+  int clientfd = clientInfo->clientfd;
 
   // Listen for an HTTP request
   char request[10000] = {0};
   struct HttpResponse response = {0};
   if (recv(clientfd, request, 10000, 0) > 0)
   {
-    handleHttpRequest(request, &response);
+    handleHttpRequest(request, clientInfo->ipaddr, &response);
     if (!response.isBanned)
       sendHttpResponse(clientfd, &response);
   }
@@ -29,7 +30,7 @@ void *httpserver(void *threadArg)
   pthread_exit(NULL);
 }
 
-void handleHttpRequest(char *request, struct HttpResponse *response)
+void handleHttpRequest(char *request, char *ipaddr, struct HttpResponse *response)
 {
   // Get user agent
   char *uaField = strstr(request, "User-Agent: ");
@@ -45,7 +46,7 @@ void handleHttpRequest(char *request, struct HttpResponse *response)
   char *userAgent = strtok(NULL, "\r\n");
 
   // Generate cookie
-  if (!GetCookie(userAgent, response))
+  if (!GetCookie(userAgent, ipaddr, response))
   {
     response->isBanned = 1; // Don't handle requests from users that are trying to DoS us
     return;

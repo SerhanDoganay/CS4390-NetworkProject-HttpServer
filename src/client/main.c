@@ -77,10 +77,9 @@ int main(int argc, char **argv)
   int fd = -1;
   if (sendFile)
     fd = open(filePath, O_RDONLY); // Read the file contents so I can send this over the HTTP request
-  else
-    fd = open(filePath, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Prepare to receive a file and write to it
+  // ...If this is a GET request, wait until after we determine whether the file actually exists in the server
   
-  if (fd == -1)
+  if (sendFile && fd == -1)
   {
     perror("Could not open file");
     exit(EXIT_FAILURE);
@@ -147,10 +146,24 @@ int main(int argc, char **argv)
     char anticipateFile = 0;
     int promisedLength = -1;
     int bytesRead = 0;
+    int httpStatus = -1;
     while ((recvStatus = recv(socketfd, serverResponse, 1000, 0)) > 0)
     {
       // Print server response
       printf("%s", serverResponse);
+
+      // What's the HTTP status?
+      if (httpStatus == -1)
+      {
+        char *statusField = serverResponse + 9; // Skip "HTTP/1.0 "
+        httpStatus = atoi(statusField);
+        if (httpStatus < 200)
+          printf("[CLIENT] Invalid status code received: %i\n", httpStatus);
+
+        // GET requests will return 200 if successful
+        if (httpStatus != 200)
+          sendFile = 1; // If a different status code was obtained, don't save this file
+      }
 
       // Am I getting Content-Length?
       if (!sendFile && promisedLength == -1)
@@ -171,8 +184,16 @@ int main(int argc, char **argv)
       char *fileFragment = strstr(serverResponse, "\r\n\r\n");
       char isFragmented = fileFragment && !anticipateFile;
       if (!sendFile && isFragmented)
+      {
         anticipateFile = 1;
-      
+        if (!hasWritten)
+        {
+          fd = open(filePath, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Prepare to receive a file and write to it
+          if (fd == -1)
+            perror("Could not open file for writing");
+        }
+      }
+
       if (anticipateFile && !hasWritten)
       {
         // Download file
@@ -192,7 +213,9 @@ int main(int argc, char **argv)
       memset(serverResponse, 0, 1000);
     }
 
-    if (!sendFile && !isHead && bytesRead != promisedLength)
+    if (httpStatus == -1)
+      puts("[CLIENT] Server terminated the connection");
+    else if (!sendFile && !isHead && bytesRead != promisedLength && !hasWritten)
       printf("[CLIENT] Was promised %i bytes; received %i bytes instead\n", promisedLength, bytesRead);
 
     if (recvStatus == -1)
@@ -200,10 +223,10 @@ int main(int argc, char **argv)
 
     // Close the connection
     close(socketfd);
+    if (fd >= 0)
+      close(fd);
     hasWritten = 1; // So that we don't continuously open and close files
   }
-
-  close(fd);
 
   return 0;
 }

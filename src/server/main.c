@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <libgen.h>
 #include <netinet/in.h>
 #include <pthread.h>
@@ -82,23 +83,26 @@ int main(int argc, char **argv)
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int *clientfd = malloc(sizeof(int)); // We don't want to lose the fd
-    if (!clientfd)
+    struct ServerArg *clientInfo = malloc(sizeof(struct ServerArg)); // We don't want to lose the fd
+    if (!clientInfo)
     {
-      puts("Failed to allocate clientfd");
+      puts("Failed to allocate clientInfo");
       exit(EXIT_FAILURE);
     }
 
-    *clientfd = accept(socketfd, (struct sockaddr *)&client_addr, &client_len);
-    if (*clientfd == -1)
+    clientInfo->clientfd = accept(socketfd, (struct sockaddr *)&client_addr, &client_len);
+    if (clientInfo->clientfd == -1)
     {
       perror("Failed to accept client");
       exit(EXIT_FAILURE);
     }
 
+    // Get IP address of client
+    inet_ntop(AF_INET, &(client_addr.sin_addr), clientInfo->ipaddr, 16);
+
     // Create new thread to handle client
     pthread_t thread;
-    pthread_create(&thread, NULL, httpserver, (void *)clientfd);
+    pthread_create(&thread, NULL, httpserver, (void *)clientInfo);
   }
 
   return 0;

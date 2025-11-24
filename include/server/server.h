@@ -21,7 +21,7 @@ struct HttpResponse
 };
 
 void *httpserver(void *);
-void handleHttpRequest(char *request, struct HttpResponse *response);
+void handleHttpRequest(char *request, char *ipaddr, struct HttpResponse *response);
 void retrieveContent(char *targetFile, struct HttpResponse *response, char isHead);
 void sendHttpResponse(int clientfd, struct HttpResponse *response);
 void determineContentType(char *targetFile, struct HttpResponse *response);

@@ -13,14 +13,14 @@ struct VisitorNode *head = NULL;
 pthread_mutex_t visitorLock;
 char csvPath[256] = {0}; 
 
-struct VisitorEntry *GetVisitor(char *userAgent)
+struct VisitorEntry *GetVisitor(char *userAgent, char *ipaddr)
 {
   pthread_mutex_lock(&visitorLock);
 
   struct VisitorNode *i = head;
   while (i)
   {
-    if (!strcmp(i->data->userAgent, userAgent))
+    if (!strcmp(i->data->userAgent, userAgent) && !strcmp(i->data->ipaddr, ipaddr))
       break; // Match!
     i = i->next;
   }
@@ -31,10 +31,10 @@ struct VisitorEntry *GetVisitor(char *userAgent)
   return NULL;
 }
 
-void PutVisitor(char *userAgent, int numVisits, int lastVisitTime)
+void PutVisitor(char *userAgent, char *ipaddr, int numVisits, int lastVisitTime)
 {
   // Does entry already exist?
-  struct VisitorEntry *i = GetVisitor(userAgent);
+  struct VisitorEntry *i = GetVisitor(userAgent, ipaddr);
   if (i)
   {
     // Update entry
@@ -57,6 +57,7 @@ void PutVisitor(char *userAgent, int numVisits, int lastVisitTime)
   }
 
   strcpy(newEntry->userAgent, userAgent);
+  strcpy(newEntry->ipaddr, ipaddr);
   newEntry->numVisits = numVisits;
   newEntry->lastVisitTime = lastVisitTime;
   newEntry->requestsPerSec = 0;
@@ -113,12 +114,14 @@ void LoadVisitors()
     // Parse this row
     char *userAgent = dbentry;
     dbentry = strtok(NULL, ",\n");
+    char *ipaddr = dbentry;
+    dbentry = strtok(NULL, ",\n");
     int numVisits = atoi(dbentry);
     dbentry = strtok(NULL, ",\n");
     int lastVisitTime = atoi(dbentry);
     dbentry = strtok(NULL, ",\n");
 
-    PutVisitor(userAgent, numVisits, lastVisitTime);
+    PutVisitor(userAgent, ipaddr, numVisits, lastVisitTime);
   }
 
   if (close(fd))
@@ -126,15 +129,15 @@ void LoadVisitors()
 }
 
 // Return 0 if this user is malicious (too many requests in a time interval); return 1 if safe
-int GetCookie(char *userAgent, struct HttpResponse *response)
+int GetCookie(char *userAgent, char *ipaddr, struct HttpResponse *response)
 {
-  struct VisitorEntry *visitor = GetVisitor(userAgent);
+  struct VisitorEntry *visitor = GetVisitor(userAgent, ipaddr);
   int numVisits = 1;
   int lastVisitTime = (int)time(NULL);
   if (!visitor)
   {
     // New visitor!
-    PutVisitor(userAgent, numVisits, lastVisitTime);
+    PutVisitor(userAgent, ipaddr, numVisits, lastVisitTime);
   }
   else if (visitor->isBlocked)
     return 0; // Don't process request from this user
@@ -178,7 +181,7 @@ void SaveVisitors(int signal)
   while (i)
   {
     char line[1500];
-    sprintf(line, "%s,%i,%i\n", i->data->userAgent, i->data->numVisits, i->data->lastVisitTime);
+    sprintf(line, "%s,%s,%i,%i\n", i->data->userAgent, i->data->ipaddr, i->data->numVisits, i->data->lastVisitTime);
     if (write(fd, line, strlen(line)) == -1)
       perror("Could not write to visitors.csv");
 

@@ -6,6 +6,7 @@
 struct VisitorEntry
 {
   char userAgent[1000];
+  char ipaddr[16];
   int numVisits;
   int lastVisitTime;
 
@@ -23,10 +24,10 @@ struct VisitorNode
 
 struct HttpResponse;
 
-struct VisitorEntry *GetVisitor(char *userAgent);
-void PutVisitor(char *userAgent, int numVisits, int lastVisitTime);
+struct VisitorEntry *GetVisitor(char *userAgent, char *ipaddr);
+void PutVisitor(char *userAgent, char *ipaddr, int numVisits, int lastVisitTime);
 void LoadVisitors();
-int GetCookie(char *userAgent, struct HttpResponse *response);
+int GetCookie(char *userAgent, char *ipaddr, struct HttpResponse *response);
 void SaveVisitors(int signal);
 
 #endif
