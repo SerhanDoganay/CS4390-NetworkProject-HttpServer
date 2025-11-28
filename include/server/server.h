@@ -20,6 +20,12 @@ struct HttpResponse
   char content[10000];
 };
 
+struct ServerArg
+{
+  int clientfd;
+  char ipaddr[16];
+};
+
 void *httpserver(void *);
 void handleHttpRequest(char *request, char *ipaddr, struct HttpResponse *response);
 void retrieveContent(char *targetFile, struct HttpResponse *response, char isHead);
